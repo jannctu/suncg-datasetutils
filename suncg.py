@@ -1,10 +1,13 @@
 import os
 from scipy.io import loadmat
 from scipy.misc import imread
-
 import numpy as np
 import matplotlib.pyplot as plt
 from skimage.transform import resize
+import sys
+sys.path.insert(0, '/media/commlab/TenTB/jan/rgbd-processor-python/')
+from camera import processCamMat
+from getHHAImg import *
 
 
 class SUNCG(object):
@@ -20,16 +23,35 @@ class SUNCG(object):
         self.last_ID = 0
         self.batch_size = batch_size
         self.masks_to_binary = masks_to_binary
+        camAddr = '/media/commlab/TenTB/jan/rgbd-processor-python/imgs/intrinsics.txt'
+        with open(camAddr, 'r') as camf:
+            self.cameraMatrix = processCamMat(camf.readlines())
+
+
+        #self.layout = os.listdir(self.SUNCG_BASE + 'renderings_depth/')
         self.layout = os.listdir(self.SUNCG_BASE + 'gt/')
         self.IMAGE_TRAIN_PATH = os.path.join(self.SUNCG_BASE, 'renderings_ldr/')
         self.DEPTH_TRAIN_PATH = os.path.join(self.SUNCG_BASE, 'renderings_depth/')
-        # self.NORMAL_TRAIN_PATH = os.path.join(self.SUNCG_BASE, 'normals/')
+        self.NORMAL_TRAIN_PATH = os.path.join(self.SUNCG_BASE, 'normals/')
+        self.HHA_TRAIN_PATH = os.path.join(self.SUNCG_BASE, 'hha/')
         # self.TEST_PATH = os.path.join(self.BSDS_BASE, 'renderings_depth/data/images/test/')
         # self.VALID_PATH = os.path.join(self.BSDS_BASE, 'BSDS500/data/images/val/')
         self.GROUND_TRUTH_TRAIN = os.path.join(self.SUNCG_BASE, 'gt/')
 
     # self.GROUND_TRUTH_TEST = os.path.join(self.BSDS_BASE, 'BSDS500/data/groundTruth/test/')
     # self.GROUND_TRUTH_VALID = os.path.join(self.BSDS_BASE, 'BSDS500/data/groundTruth/val/')
+
+    def buildFlistDepth(self,fpath):
+        layouts = self.layout
+        f = open(fpath, "w")
+
+        for layout in layouts:
+            flists = os.listdir(self.IMAGE_TRAIN_PATH + layout + '/')
+            for fn in flists:
+                f.write(layout+'/'+fn.split('_')[0]+"\n")
+                print(layout+'/'+fn.split('_')[0])
+        f.close()
+
 
     def load_ground_truth(self, layouts):
         file_id = []
@@ -67,6 +89,12 @@ class SUNCG(object):
         sgmnts = sgmnts[..., np.newaxis]
         return file_id, cnts, sgmnts
 
+    def sixteen_to_eight(self,im):
+        im = np.float32(im)
+        # quit()
+        im *= (255.0 / float(im.max()))
+        return (im).astype('uint8')
+
     def get_train(self):
         sequence = np.linspace(self.last_ID, self.last_ID + self.batch_size - 1, num=(self.batch_size))
         sequence = sequence.astype(np.int64)
@@ -77,32 +105,55 @@ class SUNCG(object):
 
         file_ids, cnts, sgmnts = self.load_ground_truth(l)
         depth_paths = []
+        images_paths = []
         for f_id in file_ids:
-            # depth_paths.append(self.DEPTH_TRAIN_PATH + f_id.split('_')[0] + '/'+f_id.split('_')[1]+'_depth.png')
-            depth_paths.append(self.IMAGE_TRAIN_PATH + f_id.split('_')[0] + '/' + f_id.split('_')[1] + '_mlt.png')
+            depth_paths.append(self.DEPTH_TRAIN_PATH + f_id.split('_')[0] + '/'+f_id.split('_')[1]+'_depth.png')
+            images_paths.append(self.IMAGE_TRAIN_PATH + f_id.split('_')[0] + '/' + f_id.split('_')[1] + '_mlt.png')
 
-        depths = self.load_depths(depth_paths)
+        depths,hha = self.load_depths(depth_paths,False)
+        #depths = []
+        #hha = []
+        #images = self.load_images(images_paths)
+        images = []
         self.last_ID = self.last_ID + self.batch_size
-        return file_ids, cnts, sgmnts, depths
+        return file_ids, cnts, sgmnts, depths,hha, images
 
-    def load_depths(self, depth_paths):
+    def load_images(self,image_paths):
+        processed_images = []
+        for ip in image_paths:
+            im = imread(ip)
+            if self.target_size:
+                im = resize(im, output_shape=self.target_size)
+
+            processed_images.append(np.expand_dims(im, 0))
+        processed_images = np.concatenate(processed_images)
+        return processed_images
+
+    def load_depths(self, depth_paths,hhaF=False):
         processed_depths = []
+        processed_hha = []
         for dp in depth_paths:
             im = imread(dp)
             if self.target_size:
                 im = resize(im, output_shape=self.target_size)
 
-            # processed_depths.append(np.expand_dims(np.expand_dims(im,2), 0))
-            processed_depths.append(np.expand_dims(im, 0))
+            if hhaF:
+                missingMask = (im == 0)
+                HHA = getHHAImg(im, missingMask, self.cameraMatrix)
+                processed_hha.append(np.expand_dims(HHA, 0))
+
+            im = self.sixteen_to_eight(im)
+            processed_depths.append(np.expand_dims(np.expand_dims(im,2), 0))
+            #processed_depths.append(np.expand_dims(im, 0))
 
         # print(processed_depths[0].shape)
-
         # plt.imshow(processed_depths[0].reshape(480,640))
         # plt.show()
-
         processed_depths = np.concatenate(processed_depths)
+        if hhaF:
+            processed_hha = np.concatenate(processed_hha)
 
-        return processed_depths
+        return processed_depths, processed_hha
 
     def get_lastID(self):
         return self.last_ID

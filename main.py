@@ -2,16 +2,17 @@ from __future__ import print_function
 import os
 from suncg import SUNCG
 import matplotlib.pyplot as plt
-path = 'C:/Users/Jan/PycharmProjects/SUNCG/'
+path = '/media/commlab/TenTB/home/jan/TenTB/SUNCG/'
 
 
-TARGET_SHAPE = (256, 256)
-da = SUNCG(path_to=path)
+TARGET_SHAPE = (240,320)
+da = SUNCG(path_to=path,target_size=TARGET_SHAPE,batch_size=1)
 
-file_ids, cnts, sgmnts, depths = da.get_train()
+da.buildFlistDepth('flistID.txt')
+#file_ids, cnts, sgmnts, depths, hha,images = da.get_train()
 
-#print(cnts[0].shape)
-#plt.imshow(cnts[0].reshape(480,640))
+#print(sgmnts[0].shape)
+#plt.imshow(hha[2])
 #plt.show()
 
 #files = os.listdir(path)
